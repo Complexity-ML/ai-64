@@ -16,7 +16,7 @@ export interface Config {
 export const defaultConfig: Config = {
   apiUrl: "http://localhost:8000",
   model: "pacific-i64",
-  maxTokens: 150,
+  maxTokens: 100,
   temperature: 0.3,
   maxSteps: 15,
   contextMaxTokens: 2000,

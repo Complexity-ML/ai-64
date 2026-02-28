@@ -24,6 +24,7 @@ interface ParsedArgs {
   maxSteps?: string;
   projectRoot?: string;
   temperature?: string;
+  debug?: string;
   task?: string;
 }
 
@@ -43,6 +44,8 @@ function parseArgs(argv: string[]): ParsedArgs {
       args.projectRoot = argv[++i];
     } else if (arg === "--temperature" && argv[i + 1]) {
       args.temperature = argv[++i];
+    } else if (arg === "--debug") {
+      args.debug = "true";
     } else if (arg === "-h" || arg === "--help") {
       console.log(`
 ${chalk.bold("AI-64")} — Coding agent powered by Pacific-i64
@@ -94,6 +97,7 @@ async function main() {
     config.contextMaxTokens
   );
   const agent = new Agent(config, llm, tools, context);
+  if (parsed.debug) agent.debug = true;
 
   if (parsed.task) {
     // One-shot mode

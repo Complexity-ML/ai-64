@@ -14,6 +14,7 @@ export class Agent {
   private llm: LLMClient;
   private tools: ToolRegistry;
   private context: ContextManager;
+  public debug = false;
 
   constructor(
     config: Config,
@@ -33,18 +34,28 @@ export class Agent {
     for (let step = 1; step <= this.config.maxSteps; step++) {
       ui.step(step, this.config.maxSteps);
 
+      const msgs = this.context.getMessages();
+      if (this.debug) {
+        ui.info(`[DEBUG] Sending ${msgs.length} messages (~${JSON.stringify(msgs).length} chars)`);
+      }
+
       // Ask the model
       const spinner = ui.createSpinner("Thinking...");
       spinner.start();
 
       let raw: string;
       try {
-        raw = await this.llm.chat(this.context.getMessages());
+        raw = await this.llm.chat(msgs);
       } catch (err: any) {
         spinner.fail(err.message);
         return;
       }
       spinner.stop();
+
+      if (this.debug) {
+        ui.info(`[DEBUG] Response (${raw.length} chars):`);
+        console.log(raw.slice(0, 500));
+      }
 
       // Parse
       const parsed = parseResponse(raw);
