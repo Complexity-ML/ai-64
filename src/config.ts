@@ -17,17 +17,16 @@ export interface Config {
 export const defaultConfig: Config = {
   apiUrl: "http://localhost:8000",
   model: "pacific-i64",
-  maxTokens: 100,
+  maxTokens: 4096,
   temperature: 0.3,
   maxSteps: 15,
-  contextMaxTokens: 2000,
+  contextMaxTokens: 16000,
   projectRoot: process.cwd(),
   execTimeout: 30_000,
   sessionId: "ai-64",
 };
 
 export function createConfig(overrides: Partial<Config> = {}): Config {
-  // Filter out undefined values so they don't overwrite defaults
   const clean: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(overrides)) {
     if (v !== undefined) clean[k] = v;

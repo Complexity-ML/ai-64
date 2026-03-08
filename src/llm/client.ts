@@ -1,10 +1,17 @@
 /**
  * AI-64 :: LLM Client — talks to vllm-i64 OpenAI-compatible API
  *
- * Supports both regular and streaming responses.
+ * Supports native tool_calls and streaming.
  */
 
-import type { ChatMessage, ChatCompletionResponse, ChatCompletionChunk } from "../types.js";
+import type {
+  ChatMessage,
+  ChatCompletionResponse,
+  ChatCompletionChunk,
+  ChatResponse,
+  ToolCall,
+  ToolDefinition,
+} from "../types.js";
 
 export class LLMClient {
   private apiUrl: string;
@@ -25,26 +32,35 @@ export class LLMClient {
     this.model = opts.model;
     this.maxTokens = opts.maxTokens;
     this.temperature = opts.temperature;
-    this.timeout = 300_000; // 5min — HF free tier can be slow
+    this.timeout = 300_000;
     this.sessionId = opts.sessionId || "ai-64";
   }
 
-  /** Send messages and get full response. */
-  async chat(messages: ChatMessage[]): Promise<string> {
+  /** Send messages with tools and get structured response (content + tool_calls). */
+  async chat(
+    messages: ChatMessage[],
+    tools?: ToolDefinition[],
+  ): Promise<ChatResponse> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeout);
 
     try {
+      const body: Record<string, unknown> = {
+        model: this.model,
+        messages,
+        max_tokens: this.maxTokens,
+        temperature: this.temperature,
+        stream: false,
+      };
+      if (tools?.length) body.tools = tools;
+
       const res = await fetch(`${this.apiUrl}/v1/chat/completions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-Session-Id": this.sessionId },
-        body: JSON.stringify({
-          model: this.model,
-          messages,
-          max_tokens: this.maxTokens,
-          temperature: this.temperature,
-          stream: false,
-        }),
+        headers: {
+          "Content-Type": "application/json",
+          "X-Session-Id": this.sessionId,
+        },
+        body: JSON.stringify(body),
         signal: controller.signal,
       });
 
@@ -54,14 +70,19 @@ export class LLMClient {
       }
 
       const data = (await res.json()) as ChatCompletionResponse;
-      return data.choices[0].message.content;
+      const choice = data.choices[0];
+      return {
+        content: choice.message.content,
+        toolCalls: choice.message.tool_calls || [],
+        finishReason: choice.finish_reason,
+      };
     } catch (err: any) {
       if (err.name === "AbortError") {
         throw new Error(`Request timed out after ${this.timeout / 1000}s`);
       }
       if (err.cause?.code === "ECONNREFUSED") {
         throw new Error(
-          `Cannot connect to ${this.apiUrl}. Is vllm-i64 running?`
+          `Cannot connect to ${this.apiUrl}. Is vllm-i64 running?`,
         );
       }
       throw err;
@@ -70,25 +91,36 @@ export class LLMClient {
     }
   }
 
-  /** Stream response token by token, calling onToken for each chunk. */
+  /**
+   * Stream response with tool_calls support.
+   * Calls onToken for each content token (for live display).
+   * Returns full ChatResponse with accumulated content + tool_calls.
+   */
   async chatStream(
     messages: ChatMessage[],
-    onToken: (token: string) => void
-  ): Promise<string> {
+    tools: ToolDefinition[] | undefined,
+    onToken: (token: string) => void,
+  ): Promise<ChatResponse> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeout);
 
     try {
+      const body: Record<string, unknown> = {
+        model: this.model,
+        messages,
+        max_tokens: this.maxTokens,
+        temperature: this.temperature,
+        stream: true,
+      };
+      if (tools?.length) body.tools = tools;
+
       const res = await fetch(`${this.apiUrl}/v1/chat/completions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-Session-Id": this.sessionId },
-        body: JSON.stringify({
-          model: this.model,
-          messages,
-          max_tokens: this.maxTokens,
-          temperature: this.temperature,
-          stream: true,
-        }),
+        headers: {
+          "Content-Type": "application/json",
+          "X-Session-Id": this.sessionId,
+        },
+        body: JSON.stringify(body),
         signal: controller.signal,
       });
 
@@ -97,7 +129,14 @@ export class LLMClient {
         throw new Error(`API ${res.status}: ${text.slice(0, 200)}`);
       }
 
-      let full = "";
+      let fullContent = "";
+      const toolCallsMap = new Map<number, {
+        id: string;
+        name: string;
+        arguments: string;
+      }>();
+      let finishReason = "stop";
+
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
@@ -118,10 +157,35 @@ export class LLMClient {
 
           try {
             const chunk = JSON.parse(payload) as ChatCompletionChunk;
-            const content = chunk.choices[0]?.delta?.content;
-            if (content) {
-              full += content;
-              onToken(content);
+            const delta = chunk.choices[0]?.delta;
+            if (!delta) continue;
+
+            if (chunk.choices[0].finish_reason) {
+              finishReason = chunk.choices[0].finish_reason;
+            }
+
+            // Content tokens
+            if (delta.content) {
+              fullContent += delta.content;
+              onToken(delta.content);
+            }
+
+            // Tool call deltas
+            if (delta.tool_calls) {
+              for (const tc of delta.tool_calls) {
+                const idx = tc.index;
+                if (!toolCallsMap.has(idx)) {
+                  toolCallsMap.set(idx, {
+                    id: tc.id || "",
+                    name: tc.function?.name || "",
+                    arguments: "",
+                  });
+                }
+                const entry = toolCallsMap.get(idx)!;
+                if (tc.id) entry.id = tc.id;
+                if (tc.function?.name) entry.name = tc.function.name;
+                if (tc.function?.arguments) entry.arguments += tc.function.arguments;
+              }
             }
           } catch {
             // skip malformed chunks
@@ -129,7 +193,24 @@ export class LLMClient {
         }
       }
 
-      return full;
+      // Build tool_calls array
+      const toolCalls: ToolCall[] = [];
+      for (const [, entry] of [...toolCallsMap.entries()].sort((a, b) => a[0] - b[0])) {
+        toolCalls.push({
+          id: entry.id,
+          type: "function",
+          function: {
+            name: entry.name,
+            arguments: entry.arguments,
+          },
+        });
+      }
+
+      return {
+        content: fullContent || null,
+        toolCalls,
+        finishReason,
+      };
     } catch (err: any) {
       if (err.name === "AbortError") {
         throw new Error(`Request timed out after ${this.timeout / 1000}s`);

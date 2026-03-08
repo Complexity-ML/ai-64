@@ -1,10 +1,13 @@
 /**
- * AI-64 :: Agent Loop — think → act → observe → repeat
+ * AI-64 :: Agent Loop — think -> act -> observe -> repeat
+ *
+ * Uses native OpenAI tool_calls with streaming for live output.
  */
 
 import type { Config } from "./config.js";
+import type { ToolDefinition } from "./types.js";
 import { LLMClient } from "./llm/client.js";
-import { parseResponse } from "./llm/parser.js";
+import { buildToolDefinitions } from "./llm/prompt.js";
 import { ToolRegistry } from "./tools/registry.js";
 import { ContextManager } from "./context/manager.js";
 import * as ui from "./ui/display.js";
@@ -14,18 +17,20 @@ export class Agent {
   private llm: LLMClient;
   private tools: ToolRegistry;
   private context: ContextManager;
+  private toolDefs: ToolDefinition[];
   public debug = false;
 
   constructor(
     config: Config,
     llm: LLMClient,
     tools: ToolRegistry,
-    context: ContextManager
+    context: ContextManager,
   ) {
     this.config = config;
     this.llm = llm;
     this.tools = tools;
     this.context = context;
+    this.toolDefs = buildToolDefinitions(tools.list());
   }
 
   async run(task: string) {
@@ -39,51 +44,61 @@ export class Agent {
         ui.info(`[DEBUG] Sending ${msgs.length} messages (~${JSON.stringify(msgs).length} chars)`);
       }
 
-      // Ask the model
-      const spinner = ui.createSpinner("Thinking...");
-      spinner.start();
+      // Stream response from model
+      let hasContent = false;
+      const response = await this.llm.chatStream(
+        msgs,
+        this.toolDefs,
+        (token) => {
+          if (!hasContent) {
+            hasContent = true;
+            process.stdout.write("\n");
+          }
+          process.stdout.write(token);
+        },
+      ).catch((err) => {
+        ui.error(err.message);
+        return null;
+      });
 
-      let raw: string;
-      try {
-        raw = await this.llm.chat(msgs);
-      } catch (err: any) {
-        spinner.fail(err.message);
-        return;
-      }
-      spinner.stop();
+      if (!response) return;
+      if (hasContent) process.stdout.write("\n");
 
       if (this.debug) {
-        ui.info(`[DEBUG] Response (${raw.length} chars):`);
-        console.log(raw.slice(0, 500));
+        ui.info(`[DEBUG] finish_reason=${response.finishReason} tool_calls=${response.toolCalls.length}`);
       }
 
-      // Parse
-      const parsed = parseResponse(raw);
+      if (response.toolCalls.length > 0) {
+        // Record assistant message with tool_calls
+        this.context.addAssistant(response.content, response.toolCalls);
 
-      // Show thinking
-      if (parsed.think) {
-        ui.think(parsed.think);
-      }
+        // Execute each tool call
+        for (const tc of response.toolCalls) {
+          const name = tc.function.name;
+          let args: Record<string, string>;
+          try {
+            args = JSON.parse(tc.function.arguments);
+          } catch {
+            ui.error(`Failed to parse arguments for ${name}: ${tc.function.arguments}`);
+            this.context.addToolResult(tc.id, "ERROR: Invalid JSON arguments");
+            continue;
+          }
 
-      if (parsed.toolName) {
-        // Execute tool
-        ui.toolCall(parsed.toolName, parsed.toolArgs);
+          ui.toolCall(name, args);
 
-        const spinner2 = ui.createSpinner(`Running ${parsed.toolName}...`);
-        spinner2.start();
-        const result = await this.tools.execute(parsed.toolName, parsed.toolArgs);
-        spinner2.stop();
+          const spinner = ui.createSpinner(`Running ${name}...`);
+          spinner.start();
+          const result = await this.tools.execute(name, args);
+          spinner.stop();
 
-        ui.toolResult(result);
-
-        // Feed back
-        this.context.addAssistant(raw);
-        this.context.addToolResult(parsed.toolName, result);
+          ui.toolResult(result);
+          this.context.addToolResult(tc.id, result);
+        }
       } else {
-        // No tool = done
-        this.context.addAssistant(raw);
-        if (parsed.text) {
-          ui.response(parsed.text);
+        // No tool calls = final answer
+        this.context.addAssistant(response.content);
+        if (response.content) {
+          console.log();
         }
         return;
       }

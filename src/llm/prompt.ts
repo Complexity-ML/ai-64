@@ -1,33 +1,41 @@
 /**
- * AI-64 :: System Prompt
+ * AI-64 :: System Prompt & Tool Definitions
  */
 
-import type { Tool, ChatMessage } from "../types.js";
+import type { Tool, ChatMessage, ToolDefinition } from "../types.js";
 
-export function buildSystemPrompt(tools: Tool[], projectRoot: string): string {
-  const toolDocs = tools
-    .map((t) => `- ${t.name}: ${t.description}. ${t.args}`)
-    .join("\n");
-
-  return `You are AI-64, a coding agent. You can execute code in Python, Node.js, and Bash via a remote sandbox.
-Tools: ${tools.map((t) => t.name).join(", ")}
-Use: TOOL: <name> then ARG: <key>=<value>
-Or reply with plain text when done.`;
+export function buildSystemPrompt(projectRoot: string): string {
+  return `You are AI-64, a coding agent. You help users with software engineering tasks.
+You have access to tools for reading, writing, editing, and searching files in the project at: ${projectRoot}
+You can execute code (Python, Node.js, Bash) in a remote sandbox with internet access.
+Be concise. Use tools to explore before making changes. Read files before editing them.`;
 }
 
-export function systemMessage(tools: Tool[], projectRoot: string): ChatMessage {
+export function systemMessage(projectRoot: string): ChatMessage {
   return {
     role: "system",
-    content: buildSystemPrompt(tools, projectRoot),
+    content: buildSystemPrompt(projectRoot),
   };
 }
 
+export function buildToolDefinitions(tools: Tool[]): ToolDefinition[] {
+  return tools.map((t) => ({
+    type: "function" as const,
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: t.parameters,
+    },
+  }));
+}
+
 export function toolResultMessage(
-  toolName: string,
-  result: string
+  toolCallId: string,
+  result: string,
 ): ChatMessage {
   return {
-    role: "user",
-    content: `[TOOL RESULT: ${toolName}]\n${result}\n[/TOOL RESULT]`,
+    role: "tool",
+    content: result,
+    tool_call_id: toolCallId,
   };
 }

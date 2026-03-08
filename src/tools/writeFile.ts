@@ -9,7 +9,14 @@ import type { Tool } from "../types.js";
 export class WriteFileTool implements Tool {
   name = "write_file";
   description = "Create or overwrite a file";
-  args = "ARG: path=<path> ARG: content=<content>";
+  parameters = {
+    type: "object",
+    properties: {
+      path: { type: "string", description: "Relative path to the file" },
+      content: { type: "string", description: "File content to write" },
+    },
+    required: ["path", "content"],
+  };
   private root: string;
 
   constructor(projectRoot: string) {
@@ -27,7 +34,6 @@ export class WriteFileTool implements Tool {
       return "ERROR: Path outside project root.";
     }
 
-    // Create parent dirs
     fs.mkdirSync(path.dirname(full), { recursive: true });
     fs.writeFileSync(full, content, "utf-8");
 

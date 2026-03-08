@@ -98,11 +98,7 @@ async function main() {
   });
 
   const tools = createDefaultRegistry(config.projectRoot, config.apiUrl, config.sessionId, config.execTimeout);
-  const context = new ContextManager(
-    tools.list(),
-    config.projectRoot,
-    config.contextMaxTokens
-  );
+  const context = new ContextManager(config.projectRoot, config.contextMaxTokens);
   const agent = new Agent(config, llm, tools, context);
   if (parsed.debug) agent.debug = true;
 

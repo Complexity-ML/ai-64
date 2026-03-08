@@ -9,7 +9,13 @@ import type { Tool } from "../types.js";
 export class ReadFileTool implements Tool {
   name = "read_file";
   description = "Read a file from the project";
-  args = "ARG: path=<relative_path>";
+  parameters = {
+    type: "object",
+    properties: {
+      path: { type: "string", description: "Relative path to the file" },
+    },
+    required: ["path"],
+  };
   private root: string;
 
   constructor(projectRoot: string) {
@@ -31,7 +37,6 @@ export class ReadFileTool implements Tool {
     const content = fs.readFileSync(full, "utf-8");
     const lines = content.split("\n");
 
-    // Add line numbers
     const numbered = lines
       .slice(0, 300)
       .map((line, i) => `${String(i + 1).padStart(4)} | ${line}`)

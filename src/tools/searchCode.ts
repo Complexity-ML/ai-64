@@ -17,7 +17,14 @@ const SKIP_EXTS = new Set([
 export class SearchCodeTool implements Tool {
   name = "search_code";
   description = "Search for a regex pattern in project files";
-  args = "ARG: query=<regex> ARG: path=<optional_subdir>";
+  parameters = {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "Regex pattern to search for" },
+      path: { type: "string", description: "Optional subdirectory to search in" },
+    },
+    required: ["query"],
+  };
   private root: string;
 
   constructor(projectRoot: string) {

@@ -9,8 +9,15 @@ import type { Tool } from "../types.js";
 
 export class ExecuteTool implements Tool {
   name = "execute_code";
-  description = "Run code in the vllm-i64 sandbox (python, node, bash)";
-  args = "ARG: code=<code>\nARG: language=<python|node|bash>";
+  description = "Run code in the vllm-i64 sandbox (python, node, bash). Has internet access.";
+  parameters = {
+    type: "object",
+    properties: {
+      code: { type: "string", description: "Source code to execute" },
+      language: { type: "string", enum: ["python", "node", "bash"], description: "Runtime language" },
+    },
+    required: ["code"],
+  };
   private apiUrl: string;
   private sessionId: string;
   private timeout: number;

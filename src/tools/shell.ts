@@ -9,8 +9,14 @@ import type { Tool } from "../types.js";
 
 export class ShellTool implements Tool {
   name = "shell";
-  description = "Run a shell command in the vllm-i64 sandbox (ls, cat, git, etc.)";
-  args = "ARG: command=<shell_command>";
+  description = "Run a shell command in the vllm-i64 sandbox (ls, cat, git, curl, etc.)";
+  parameters = {
+    type: "object",
+    properties: {
+      command: { type: "string", description: "Shell command to execute" },
+    },
+    required: ["command"],
+  };
   private apiUrl: string;
   private sessionId: string;
   private timeout: number;

@@ -9,7 +9,15 @@ import type { Tool } from "../types.js";
 export class EditFileTool implements Tool {
   name = "edit_file";
   description = "Edit a file by replacing text (search & replace)";
-  args = "ARG: path=<path> ARG: old=<text_to_find> ARG: new=<replacement_text>";
+  parameters = {
+    type: "object",
+    properties: {
+      path: { type: "string", description: "Relative path to the file" },
+      old: { type: "string", description: "Exact text to find" },
+      new: { type: "string", description: "Replacement text" },
+    },
+    required: ["path", "old", "new"],
+  };
   private root: string;
 
   constructor(projectRoot: string) {
@@ -36,7 +44,6 @@ export class EditFileTool implements Tool {
       return `ERROR: Text not found in ${filePath}. Read the file first to see exact content.`;
     }
 
-    // Count occurrences
     const count = content.split(oldText).length - 1;
     content = content.replace(oldText, newText);
     fs.writeFileSync(full, content, "utf-8");

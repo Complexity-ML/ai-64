@@ -10,7 +10,13 @@ import type { Tool } from "../types.js";
 export class ListFilesTool implements Tool {
   name = "list_files";
   description = "List files matching a glob pattern";
-  args = "ARG: pattern=<glob_pattern>";
+  parameters = {
+    type: "object",
+    properties: {
+      pattern: { type: "string", description: "Glob pattern (e.g. '**/*.py', 'src/*.ts')" },
+    },
+    required: ["pattern"],
+  };
   private root: string;
 
   constructor(projectRoot: string) {
