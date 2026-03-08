@@ -9,7 +9,7 @@ export function buildSystemPrompt(tools: Tool[], projectRoot: string): string {
     .map((t) => `- ${t.name}: ${t.description}. ${t.args}`)
     .join("\n");
 
-  return `You are AI-64, a Python coding agent.
+  return `You are AI-64, a coding agent. You can execute code in Python, Node.js, and Bash via a remote sandbox.
 Tools: ${tools.map((t) => t.name).join(", ")}
 Use: TOOL: <name> then ARG: <key>=<value>
 Or reply with plain text when done.`;

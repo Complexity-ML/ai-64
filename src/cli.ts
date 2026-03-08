@@ -24,6 +24,7 @@ interface ParsedArgs {
   maxSteps?: string;
   projectRoot?: string;
   temperature?: string;
+  sessionId?: string;
   debug?: string;
   task?: string;
 }
@@ -44,6 +45,8 @@ function parseArgs(argv: string[]): ParsedArgs {
       args.projectRoot = argv[++i];
     } else if (arg === "--temperature" && argv[i + 1]) {
       args.temperature = argv[++i];
+    } else if (arg === "--session-id" && argv[i + 1]) {
+      args.sessionId = argv[++i];
     } else if (arg === "--debug") {
       args.debug = "true";
     } else if (arg === "-h" || arg === "--help") {
@@ -60,6 +63,8 @@ ${chalk.dim("Options:")}
   --max-steps <n>       Max agent steps (default: 15)
   --project-root <dir>  Project root (default: cwd)
   --temperature <f>     Temperature (default: 0.3)
+  --session-id <id>     Session ID for event tracking (default: ai-64)
+  --debug               Verbose output
   -h, --help            Show this help
 `);
       process.exit(0);
@@ -81,6 +86,7 @@ async function main() {
     maxSteps: parsed.maxSteps ? parseInt(parsed.maxSteps) : undefined,
     projectRoot: parsed.projectRoot,
     temperature: parsed.temperature ? parseFloat(parsed.temperature) : undefined,
+    sessionId: parsed.sessionId,
   });
 
   const llm = new LLMClient({
@@ -88,9 +94,10 @@ async function main() {
     model: config.model,
     maxTokens: config.maxTokens,
     temperature: config.temperature,
+    sessionId: config.sessionId,
   });
 
-  const tools = createDefaultRegistry(config.projectRoot, config.execTimeout);
+  const tools = createDefaultRegistry(config.projectRoot, config.apiUrl, config.sessionId, config.execTimeout);
   const context = new ContextManager(
     tools.list(),
     config.projectRoot,
@@ -106,6 +113,7 @@ async function main() {
     // Interactive REPL
     ui.banner();
     ui.info(`API: ${config.apiUrl}`);
+    ui.info(`Session: ${config.sessionId}`);
     ui.info(`Project: ${config.projectRoot}`);
     ui.info(`Type 'exit' or Ctrl+C to quit.`);
     console.log();

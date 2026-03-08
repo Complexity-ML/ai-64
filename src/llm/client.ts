@@ -12,18 +12,21 @@ export class LLMClient {
   private maxTokens: number;
   private temperature: number;
   private timeout: number;
+  private sessionId: string;
 
   constructor(opts: {
     apiUrl: string;
     model: string;
     maxTokens: number;
     temperature: number;
+    sessionId?: string;
   }) {
     this.apiUrl = opts.apiUrl.replace(/\/+$/, "");
     this.model = opts.model;
     this.maxTokens = opts.maxTokens;
     this.temperature = opts.temperature;
     this.timeout = 300_000; // 5min — HF free tier can be slow
+    this.sessionId = opts.sessionId || "ai-64";
   }
 
   /** Send messages and get full response. */
@@ -34,7 +37,7 @@ export class LLMClient {
     try {
       const res = await fetch(`${this.apiUrl}/v1/chat/completions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Session-Id": this.sessionId },
         body: JSON.stringify({
           model: this.model,
           messages,
@@ -78,7 +81,7 @@ export class LLMClient {
     try {
       const res = await fetch(`${this.apiUrl}/v1/chat/completions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Session-Id": this.sessionId },
         body: JSON.stringify({
           model: this.model,
           messages,

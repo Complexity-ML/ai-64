@@ -1,19 +1,23 @@
 /**
- * AI-64 :: Tool — Execute Python
+ * AI-64 :: Tool — Execute Code (via vllm-i64 sandbox)
+ *
+ * Runs code remotely on the vllm-i64 sandbox (/v1/execute).
+ * Supports Python, Node.js, and Bash.
  */
 
-import { execSync } from "node:child_process";
 import type { Tool } from "../types.js";
 
 export class ExecuteTool implements Tool {
-  name = "execute_python";
-  description = "Run Python code in a subprocess";
-  args = "ARG: code=<python_code>";
-  private root: string;
+  name = "execute_code";
+  description = "Run code in the vllm-i64 sandbox (python, node, bash)";
+  args = "ARG: code=<code>\nARG: language=<python|node|bash>";
+  private apiUrl: string;
+  private sessionId: string;
   private timeout: number;
 
-  constructor(projectRoot: string, timeout = 30_000) {
-    this.root = projectRoot;
+  constructor(apiUrl: string, sessionId: string, timeout = 30_000) {
+    this.apiUrl = apiUrl.replace(/\/+$/, "");
+    this.sessionId = sessionId;
     this.timeout = timeout;
   }
 
@@ -21,26 +25,50 @@ export class ExecuteTool implements Tool {
     const code = args.code;
     if (!code) return "ERROR: Missing 'code' argument.";
 
+    const language = args.language || "python";
+
     try {
-      const output = execSync(`python -c ${JSON.stringify(code)}`, {
-        cwd: this.root,
-        timeout: this.timeout,
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "pipe"],
-        maxBuffer: 1024 * 1024,
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.timeout);
+
+      const res = await fetch(`${this.apiUrl}/v1/execute`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Session-Id": this.sessionId,
+        },
+        body: JSON.stringify({ code, language }),
+        signal: controller.signal,
       });
 
-      const result = output.trim();
-      if (result.length > 2000) return result.slice(0, 2000) + "\n... (truncated)";
+      clearTimeout(timer);
+
+      if (!res.ok) {
+        const text = await res.text();
+        return `ERROR: Sandbox ${res.status}: ${text.slice(0, 500)}`;
+      }
+
+      const data = await res.json() as {
+        stdout?: string;
+        stderr?: string;
+        exit_code?: number;
+        timed_out?: boolean;
+        duration_ms?: number;
+      };
+
+      const parts: string[] = [];
+      if (data.stdout) parts.push(data.stdout);
+      if (data.stderr) parts.push(`STDERR:\n${data.stderr}`);
+      if (data.timed_out) parts.push("(execution timed out)");
+      parts.push(`exit_code: ${data.exit_code ?? "?"}`);
+
+      const result = parts.join("\n");
+      if (result.length > 3000) return result.slice(0, 3000) + "\n... (truncated)";
       return result || "(no output)";
     } catch (err: any) {
-      if (err.killed) return `ERROR: Timed out after ${this.timeout / 1000}s.`;
-      const stderr = err.stderr?.trim() || err.message;
-      const stdout = err.stdout?.trim() || "";
-      let out = stdout;
-      if (stderr) out += (out ? "\n" : "") + `STDERR:\n${stderr}`;
-      if (out.length > 2000) return out.slice(0, 2000) + "\n... (truncated)";
-      return out || `ERROR: Process exited with code ${err.status}`;
+      if (err.name === "AbortError") return `ERROR: Timed out after ${this.timeout / 1000}s.`;
+      if (err.cause?.code === "ECONNREFUSED") return `ERROR: Cannot connect to sandbox at ${this.apiUrl}`;
+      return `ERROR: ${err.message}`;
     }
   }
 }

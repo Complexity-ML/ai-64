@@ -1,19 +1,23 @@
 /**
- * AI-64 :: Tool — Shell Command
+ * AI-64 :: Tool — Shell Command (via vllm-i64 sandbox)
+ *
+ * Runs shell commands remotely via the vllm-i64 sandbox (/v1/execute)
+ * using bash as the language.
  */
 
-import { execSync } from "node:child_process";
 import type { Tool } from "../types.js";
 
 export class ShellTool implements Tool {
   name = "shell";
-  description = "Run a shell command (ls, cat, git, npm, etc.)";
+  description = "Run a shell command in the vllm-i64 sandbox (ls, cat, git, etc.)";
   args = "ARG: command=<shell_command>";
-  private root: string;
+  private apiUrl: string;
+  private sessionId: string;
   private timeout: number;
 
-  constructor(projectRoot: string, timeout = 30_000) {
-    this.root = projectRoot;
+  constructor(apiUrl: string, sessionId: string, timeout = 30_000) {
+    this.apiUrl = apiUrl.replace(/\/+$/, "");
+    this.sessionId = sessionId;
     this.timeout = timeout;
   }
 
@@ -22,25 +26,46 @@ export class ShellTool implements Tool {
     if (!command) return "ERROR: Missing 'command' argument.";
 
     try {
-      const output = execSync(command, {
-        cwd: this.root,
-        timeout: this.timeout,
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "pipe"],
-        maxBuffer: 1024 * 1024,
-      } as any);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.timeout);
 
-      const result = output.trim();
+      const res = await fetch(`${this.apiUrl}/v1/execute`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Session-Id": this.sessionId,
+        },
+        body: JSON.stringify({ code: command, language: "bash" }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timer);
+
+      if (!res.ok) {
+        const text = await res.text();
+        return `ERROR: Sandbox ${res.status}: ${text.slice(0, 500)}`;
+      }
+
+      const data = await res.json() as {
+        stdout?: string;
+        stderr?: string;
+        exit_code?: number;
+        timed_out?: boolean;
+      };
+
+      const parts: string[] = [];
+      if (data.stdout) parts.push(data.stdout);
+      if (data.stderr) parts.push(`STDERR:\n${data.stderr}`);
+      if (data.timed_out) parts.push("(execution timed out)");
+      if (data.exit_code !== 0) parts.push(`exit_code: ${data.exit_code}`);
+
+      const result = parts.join("\n");
       if (result.length > 3000) return result.slice(0, 3000) + "\n... (truncated)";
       return result || "(no output)";
     } catch (err: any) {
-      if (err.killed) return `ERROR: Timed out after ${this.timeout / 1000}s.`;
-      const stderr = err.stderr?.trim() || err.message;
-      const stdout = err.stdout?.trim() || "";
-      let out = stdout;
-      if (stderr) out += (out ? "\n" : "") + `STDERR:\n${stderr}`;
-      if (out.length > 3000) return out.slice(0, 3000) + "\n... (truncated)";
-      return out || `ERROR: exit code ${err.status}`;
+      if (err.name === "AbortError") return `ERROR: Timed out after ${this.timeout / 1000}s.`;
+      if (err.cause?.code === "ECONNREFUSED") return `ERROR: Cannot connect to sandbox at ${this.apiUrl}`;
+      return `ERROR: ${err.message}`;
     }
   }
 }

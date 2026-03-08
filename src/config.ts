@@ -11,6 +11,7 @@ export interface Config {
   contextMaxTokens: number;
   projectRoot: string;
   execTimeout: number;
+  sessionId: string;
 }
 
 export const defaultConfig: Config = {
@@ -22,6 +23,7 @@ export const defaultConfig: Config = {
   contextMaxTokens: 2000,
   projectRoot: process.cwd(),
   execTimeout: 30_000,
+  sessionId: "ai-64",
 };
 
 export function createConfig(overrides: Partial<Config> = {}): Config {

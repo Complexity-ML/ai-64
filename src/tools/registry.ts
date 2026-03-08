@@ -42,7 +42,9 @@ export class ToolRegistry {
 
 export function createDefaultRegistry(
   projectRoot: string,
-  execTimeout = 30_000
+  apiUrl: string,
+  sessionId: string,
+  execTimeout = 30_000,
 ): ToolRegistry {
   const reg = new ToolRegistry();
   reg.register(new ReadFileTool(projectRoot));
@@ -50,7 +52,7 @@ export function createDefaultRegistry(
   reg.register(new EditFileTool(projectRoot));
   reg.register(new ListFilesTool(projectRoot));
   reg.register(new SearchCodeTool(projectRoot));
-  reg.register(new ExecuteTool(projectRoot, execTimeout));
-  reg.register(new ShellTool(projectRoot, execTimeout));
+  reg.register(new ExecuteTool(apiUrl, sessionId, execTimeout));
+  reg.register(new ShellTool(apiUrl, sessionId, execTimeout));
   return reg;
 }
